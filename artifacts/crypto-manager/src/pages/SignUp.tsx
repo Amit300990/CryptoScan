@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
 
-export function SignIn() {
-  const { login } = useAuth();
+export function SignUp() {
+  const { register } = useAuth();
   const [, setLocation] = useLocation();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,10 +19,10 @@ export function SignIn() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
+      await register(email, password, name || undefined);
       setLocation("/");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Login failed. Please try again.");
+      setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -39,8 +40,18 @@ export function SignIn() {
         </div>
 
         <div className="bg-card border border-border rounded-xl p-8 shadow-2xl">
-          <h2 className="text-lg font-semibold text-foreground mb-6">Welcome back</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-6">Create an account</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm text-muted-foreground mb-1">Name (optional)</label>
+              <Input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                autoComplete="name"
+              />
+            </div>
             <div>
               <label className="block text-sm text-muted-foreground mb-1">Email</label>
               <Input
@@ -58,9 +69,10 @@ export function SignIn() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="At least 8 characters"
                 required
-                autoComplete="current-password"
+                minLength={8}
+                autoComplete="new-password"
               />
             </div>
             {error && (
@@ -69,13 +81,13 @@ export function SignIn() {
               </p>
             )}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? "Creating account…" : "Create account"}
             </Button>
           </form>
           <p className="text-sm text-center text-muted-foreground mt-5">
-            Don&apos;t have an account?{" "}
-            <Link href="/sign-up" className="text-primary hover:underline">
-              Sign up
+            Already have an account?{" "}
+            <Link href="/sign-in" className="text-primary hover:underline">
+              Sign in
             </Link>
           </p>
         </div>

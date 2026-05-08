@@ -6,3 +6,4 @@ export * from "./findings";
 export * from "./connections";
 export * from "./logs";
 export * from "./settings";
+export * from "./users";

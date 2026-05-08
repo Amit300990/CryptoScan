@@ -1,20 +1,19 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
-import { clerkMiddleware } from "@clerk/express";
-import { publishableKeyFromHost } from "@clerk/shared/keys";
 import router from "./routes";
+import authRouter from "./routes/auth";
 import { logger } from "./lib/logger";
-import {
-  CLERK_PROXY_PATH,
-  clerkProxyMiddleware,
-  getClerkProxyHost,
-} from "./middlewares/clerkProxyMiddleware";
-import { errorMiddleware, authMiddleware } from "./middlewares/errorHandler";
+import { errorMiddleware } from "./middlewares/errorHandler";
+import { jwtAuthMiddleware } from "./lib/jwtAuth";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app: Express = express();
 
-// Security headers (replaces helmet)
+// Security headers
 app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -52,16 +51,10 @@ app.use(
     logger,
     serializers: {
       req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
+        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
       },
       res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
+        return { statusCode: res.statusCode };
       },
     },
   }),
@@ -69,48 +62,55 @@ app.use(
 
 app.use(globalRateLimit);
 
-app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
-
-// Configure CORS with restricted origins
-const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+// CORS — allow configured origins + localhost in development
+const configuredOrigins = (process.env.ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
 
-if (allowedOrigins.length === 0 && process.env.NODE_ENV === "production") {
-  logger.warn(
-    "ALLOWED_ORIGINS not configured in production. CORS will be disabled.",
-  );
+const devOrigins =
+  process.env.NODE_ENV !== "production"
+    ? ["http://localhost:5173", "http://127.0.0.1:5173"]
+    : [];
+
+const effectiveOrigins = [...configuredOrigins, ...devOrigins];
+
+if (effectiveOrigins.length === 0 && process.env.NODE_ENV === "production") {
+  logger.warn("ALLOWED_ORIGINS not configured in production. CORS will be disabled.");
 }
 
 app.use(
   cors({
     credentials: true,
-    origin: allowedOrigins.length > 0 ? allowedOrigins : false,
+    origin: effectiveOrigins.length > 0 ? effectiveOrigins : false,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 86400,
   }),
 );
+
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
-app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
-  })),
-);
+// Public auth endpoints (register, login, me) — no JWT required
+app.use("/api", authRouter);
 
-// Global auth middleware - protect all /api routes
-app.use("/api", authMiddleware);
+// JWT middleware — protects every route registered below this line
+app.use("/api", jwtAuthMiddleware);
 
-// API routes
+// Protected API routes
 app.use("/api", router);
 
-// Global error handling middleware (must be last)
+// Serve built frontend in production (single-service deployment)
+if (process.env.NODE_ENV === "production") {
+  const staticPath = path.join(__dirname, "public");
+  app.use(express.static(staticPath));
+  app.get("*", (_req: Request, res: Response) => {
+    res.sendFile(path.join(staticPath, "index.html"));
+  });
+}
+
+// Global error handler (must be last)
 app.use(errorMiddleware);
 
 export default app;

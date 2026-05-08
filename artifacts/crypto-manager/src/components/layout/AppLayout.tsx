@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { useUser, useClerk } from "@clerk/react";
+import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard,
   Server,
@@ -40,8 +40,7 @@ function NavItem({
   icon: React.ElementType;
 }) {
   const [location] = useLocation();
-  const isActive =
-    href === "/" ? location === "/" : location.startsWith(href);
+  const isActive = href === "/" ? location === "/" : location.startsWith(href);
 
   return (
     <Link
@@ -67,32 +66,27 @@ function NavItem({
 }
 
 function UserProfile() {
-  const { user, isLoaded } = useUser();
-  const { signOut } = useClerk();
+  const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
 
-  if (!isLoaded || !user) return null;
+  if (!user) return null;
 
-  const name = user.fullName ?? user.primaryEmailAddress?.emailAddress ?? "User";
-  const email = user.primaryEmailAddress?.emailAddress ?? "";
-  const initials = name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+  const initials = user.name
+    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : user.email.slice(0, 2).toUpperCase();
 
   return (
     <div className="px-3 py-3 border-t border-sidebar-border">
       <div className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent/50 group">
         <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/20 border border-primary/30 text-primary text-xs font-bold shrink-0">
-          {user.imageUrl ? (
-            <img src={user.imageUrl} alt={name} className="w-full h-full rounded-full object-cover" />
-          ) : (
-            initials || <User className="h-3.5 w-3.5" />
-          )}
+          {initials || <User className="h-3.5 w-3.5" />}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-foreground truncate">{name}</p>
-          {email && <p className="text-[10px] text-muted-foreground/60 truncate">{email}</p>}
+          <p className="text-xs font-medium text-foreground truncate">{user.name ?? user.email}</p>
+          {user.name && <p className="text-[10px] text-muted-foreground/60 truncate">{user.email}</p>}
         </div>
         <button
-          onClick={() => signOut(() => setLocation("/sign-in"))}
+          onClick={() => { logout(); setLocation("/sign-in"); }}
           title="Sign out"
           className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-sidebar-accent text-muted-foreground hover:text-foreground transition"
         >
@@ -106,9 +100,7 @@ function UserProfile() {
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Sidebar */}
       <aside className="fixed left-0 top-0 h-full w-60 bg-sidebar border-r border-sidebar-border flex flex-col z-20">
-        {/* Brand */}
         <div className="flex items-center gap-2.5 px-5 py-5 border-b border-sidebar-border">
           <div className="flex items-center justify-center w-7 h-7 rounded bg-primary/10 border border-primary/30">
             <ShieldCheck className="h-4 w-4 text-primary" />
@@ -119,7 +111,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Main Nav */}
         <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
           <p className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40">
             Operations
@@ -135,7 +126,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        {/* Status */}
         <div className="px-4 py-3 border-t border-sidebar-border">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-green-500 ring-2 ring-green-500/20 shrink-0" />
@@ -143,11 +133,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* User profile */}
         <UserProfile />
       </aside>
 
-      {/* Main content */}
       <main className="ml-60 flex-1 min-h-screen bg-background overflow-auto">
         {children}
       </main>

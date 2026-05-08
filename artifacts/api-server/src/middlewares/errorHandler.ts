@@ -31,7 +31,7 @@ export const errorMiddleware = (
         code: err.code,
         path: req.path,
         method: req.method,
-        userId: req.auth?.userId,
+        userId: req.user?.userId,
       },
       err.message,
     );
@@ -48,7 +48,7 @@ export const errorMiddleware = (
       err,
       path: req.path,
       method: req.method,
-      userId: req.auth?.userId,
+      userId: req.user?.userId,
     },
     "Unhandled error",
   );
@@ -58,20 +58,4 @@ export const errorMiddleware = (
     code: "INTERNAL_ERROR",
     timestamp: new Date().toISOString(),
   });
-};
-
-export const authMiddleware = (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
-  if (!req.auth?.userId) {
-    res.status(401).json({
-      error: "Unauthorized",
-      code: "UNAUTHORIZED",
-      timestamp: new Date().toISOString(),
-    });
-    return;
-  }
-  next();
 };
