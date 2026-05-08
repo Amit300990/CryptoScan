@@ -13,7 +13,7 @@ import { runScan, isScanRunning } from "../lib/scanner";
 import { writeLog } from "../lib/writeLog";
 import { scanEventBus, type ScanProgressEvent } from "../lib/scanEventBus";
 import { asyncHandler, ApiError } from "../middlewares/errorHandler";
-import { scanRateLimit } from "../app";
+import { scanRateLimit } from "../lib/rateLimiter";
 
 const router: IRouter = Router();
 

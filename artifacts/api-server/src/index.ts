@@ -14,12 +14,7 @@ process.on("uncaughtException", (err: Error) => {
 });
 
 // Validate required environment variables
-const requiredEnvVars = [
-  "PORT",
-  "DATABASE_URL",
-  "CLERK_PUBLISHABLE_KEY",
-  "CLERK_SECRET_KEY",
-];
+const requiredEnvVars = ["PORT", "DATABASE_URL", "JWT_SECRET"];
 
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {

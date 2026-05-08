@@ -1,20 +1,22 @@
 import path from "path";
 import { fileURLToPath } from "url";
-import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import express from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import authRouter from "./routes/auth";
+import healthRouter from "./routes/health";
 import { logger } from "./lib/logger";
 import { errorMiddleware } from "./middlewares/errorHandler";
 import { jwtAuthMiddleware } from "./lib/jwtAuth";
+import { globalRateLimit } from "./lib/rateLimiter";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const app: Express = express();
+const app = express();
 
 // Security headers
-app.use((_req: Request, res: Response, next: NextFunction) => {
+app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "0");
@@ -23,28 +25,6 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   next();
 });
-
-// Simple in-memory rate limiter (global: 200 req/min, scan: 10 req/min)
-const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();
-function _makeRateLimiter(maxRequests: number, windowMs: number) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const key = `${req.ip ?? "unknown"}:${maxRequests}`;
-    const now = Date.now();
-    const entry = _rateLimitStore.get(key);
-    if (!entry || entry.resetAt <= now) {
-      _rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-      return next();
-    }
-    entry.count++;
-    if (entry.count > maxRequests) {
-      res.status(429).json({ error: "TOO_MANY_REQUESTS", message: "Rate limit exceeded. Please retry later." });
-      return;
-    }
-    next();
-  };
-}
-const globalRateLimit = _makeRateLimiter(200, 60_000);
-export const scanRateLimit = _makeRateLimiter(10, 60_000);
 
 app.use(
   pinoHttp({
@@ -92,8 +72,9 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
-// Public auth endpoints (register, login, me) — no JWT required
+// Public endpoints — no JWT required
 app.use("/api", authRouter);
+app.use("/api", healthRouter);
 
 // JWT middleware — protects every route registered below this line
 app.use("/api", jwtAuthMiddleware);
@@ -105,7 +86,7 @@ app.use("/api", router);
 if (process.env.NODE_ENV === "production") {
   const staticPath = path.join(__dirname, "public");
   app.use(express.static(staticPath));
-  app.get("*", (_req: Request, res: Response) => {
+  app.get("*", (_req, res) => {
     res.sendFile(path.join(staticPath, "index.html"));
   });
 }
