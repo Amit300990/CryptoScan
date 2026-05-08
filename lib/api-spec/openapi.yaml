@@ -1,0 +1,1347 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Cryptography Manager API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: environments
+    description: Cloud and on-premises environment connections
+  - name: connections
+    description: Provider-specific credential connections for environments
+  - name: scan-jobs
+    description: Cryptographic asset scanning jobs
+  - name: assets
+    description: Cryptographic asset inventory
+  - name: policies
+    description: Cryptographic policy rules
+  - name: findings
+    description: Risk findings from scans
+  - name: dashboard
+    description: Dashboard summary and analytics
+  - name: logs
+    description: Read-only system and audit log entries
+
+paths:
+  /logs:
+    get:
+      operationId: listLogs
+      tags: [logs]
+      summary: List system and audit log entries (read-only)
+      parameters:
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [info, warn, error]
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [scan, finding, policy, environment, connection, system]
+        - name: environmentId
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 200
+      responses:
+        "200":
+          description: List of log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SystemLog"
+
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /environments:
+    get:
+      operationId: listEnvironments
+      tags: [environments]
+      summary: List all environments
+      responses:
+        "200":
+          description: List of environments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Environment"
+    post:
+      operationId: createEnvironment
+      tags: [environments]
+      summary: Create a new environment connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEnvironmentBody"
+      responses:
+        "201":
+          description: Created environment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+
+  /environments/{id}:
+    get:
+      operationId: getEnvironment
+      tags: [environments]
+      summary: Get environment by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Environment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+        "404":
+          description: Not found
+    put:
+      operationId: updateEnvironment
+      tags: [environments]
+      summary: Update an environment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEnvironmentBody"
+      responses:
+        "200":
+          description: Updated environment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Environment"
+    delete:
+      operationId: deleteEnvironment
+      tags: [environments]
+      summary: Delete an environment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /environments/{id}/scan:
+    post:
+      operationId: triggerScan
+      tags: [environments]
+      summary: Trigger a scan for an environment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Scan job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanJob"
+
+  /environments/{id}/connections:
+    get:
+      operationId: listConnections
+      tags: [connections]
+      summary: List credential connections for an environment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EnvironmentConnection"
+    post:
+      operationId: createConnection
+      tags: [connections]
+      summary: Create a credential connection for an environment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectionBody"
+      responses:
+        "201":
+          description: Created connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentConnection"
+
+  /environments/{id}/connections/{connectionId}:
+    put:
+      operationId: updateConnection
+      tags: [connections]
+      summary: Update a credential connection
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConnectionBody"
+      responses:
+        "200":
+          description: Updated connection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentConnection"
+    delete:
+      operationId: deleteConnection
+      tags: [connections]
+      summary: Delete a credential connection
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /environments/{id}/connections/{connectionId}/test:
+    post:
+      operationId: testConnection
+      tags: [connections]
+      summary: Test a credential connection
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResult"
+
+  /scan-jobs:
+    get:
+      operationId: listScanJobs
+      tags: [scan-jobs]
+      summary: List scan jobs
+      parameters:
+        - name: environmentId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of scan jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScanJob"
+
+  /scan-jobs/{id}:
+    get:
+      operationId: getScanJob
+      tags: [scan-jobs]
+      summary: Get scan job by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Scan job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanJob"
+
+  /assets:
+    get:
+      operationId: listAssets
+      tags: [assets]
+      summary: List cryptographic assets
+      parameters:
+        - name: environmentId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: assetType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: riskLevel
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Paginated list of assets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetListResponse"
+
+  /assets/{id}:
+    get:
+      operationId: getAsset
+      tags: [assets]
+      summary: Get asset details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cryptographic asset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CryptoAsset"
+        "404":
+          description: Not found
+
+  /policies:
+    get:
+      operationId: listPolicies
+      tags: [policies]
+      summary: List policy rules
+      responses:
+        "200":
+          description: List of policy rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PolicyRule"
+    post:
+      operationId: createPolicy
+      tags: [policies]
+      summary: Create a policy rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePolicyBody"
+      responses:
+        "201":
+          description: Created policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyRule"
+
+  /policies/{id}:
+    put:
+      operationId: updatePolicy
+      tags: [policies]
+      summary: Update a policy rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePolicyBody"
+      responses:
+        "200":
+          description: Updated policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyRule"
+    delete:
+      operationId: deletePolicy
+      tags: [policies]
+      summary: Delete a policy rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /findings:
+    get:
+      operationId: listFindings
+      tags: [findings]
+      summary: List risk findings
+      parameters:
+        - name: environmentId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: severity
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of findings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Finding"
+
+  /findings/{id}:
+    get:
+      operationId: getFinding
+      tags: [findings]
+      summary: Get finding details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Finding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Finding"
+    put:
+      operationId: updateFinding
+      tags: [findings]
+      summary: Update finding status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateFindingBody"
+      responses:
+        "200":
+          description: Updated finding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Finding"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary stats
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/risk-by-environment:
+    get:
+      operationId: getRiskByEnvironment
+      tags: [dashboard]
+      summary: Risk score breakdown by environment
+      responses:
+        "200":
+          description: Risk by environment
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EnvironmentRiskStat"
+
+  /dashboard/assets-by-type:
+    get:
+      operationId: getAssetsByType
+      tags: [dashboard]
+      summary: Asset count by type
+      responses:
+        "200":
+          description: Asset counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetTypeStat"
+
+  /dashboard/expiring-certs:
+    get:
+      operationId: getExpiringCerts
+      tags: [dashboard]
+      summary: Certificates expiring soon
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 90
+      responses:
+        "200":
+          description: Expiring certificates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CryptoAsset"
+
+  /dashboard/quantum-readiness:
+    get:
+      operationId: getQuantumReadiness
+      tags: [dashboard]
+      summary: Post-quantum cryptography readiness report
+      responses:
+        "200":
+          description: Quantum readiness
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuantumReadiness"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    EnvironmentType:
+      type: string
+      enum: [on_premises, aws, azure, gcp, vmware]
+
+    EnvironmentStatus:
+      type: string
+      enum: [connected, disconnected, scanning, error]
+
+    Environment:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/EnvironmentType"
+        status:
+          $ref: "#/components/schemas/EnvironmentStatus"
+        region:
+          type: string
+          nullable: true
+        credentialHint:
+          type: string
+          nullable: true
+        lastScannedAt:
+          type: string
+          nullable: true
+        assetCount:
+          type: integer
+        riskScore:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - name
+        - type
+        - status
+        - assetCount
+        - riskScore
+        - createdAt
+        - updatedAt
+
+    CreateEnvironmentBody:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/EnvironmentType"
+        region:
+          type: string
+          nullable: true
+        credentialHint:
+          type: string
+          nullable: true
+      required:
+        - name
+        - type
+
+    UpdateEnvironmentBody:
+      type: object
+      properties:
+        name:
+          type: string
+        region:
+          type: string
+          nullable: true
+        credentialHint:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/EnvironmentStatus"
+
+    ScanStatus:
+      type: string
+      enum: [pending, running, completed, failed]
+
+    ScanJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        environmentId:
+          type: integer
+        environmentName:
+          type: string
+        status:
+          $ref: "#/components/schemas/ScanStatus"
+        startedAt:
+          type: string
+          nullable: true
+        completedAt:
+          type: string
+          nullable: true
+        assetsDiscovered:
+          type: integer
+        findingsGenerated:
+          type: integer
+        errorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - environmentId
+        - environmentName
+        - status
+        - assetsDiscovered
+        - findingsGenerated
+        - createdAt
+
+    AssetType:
+      type: string
+      enum: [certificate, symmetric_key, asymmetric_key, tls_config, ssh_key, code_signing_key, kms_key, secret]
+
+    RiskLevel:
+      type: string
+      enum: [critical, high, medium, low, info]
+
+    CryptoAsset:
+      type: object
+      properties:
+        id:
+          type: integer
+        environmentId:
+          type: integer
+        environmentName:
+          type: string
+        environmentType:
+          $ref: "#/components/schemas/EnvironmentType"
+        scanJobId:
+          type: integer
+        name:
+          type: string
+        assetType:
+          $ref: "#/components/schemas/AssetType"
+        algorithm:
+          type: string
+          nullable: true
+        keyLength:
+          type: integer
+          nullable: true
+        issuer:
+          type: string
+          nullable: true
+        subject:
+          type: string
+          nullable: true
+        expiresAt:
+          type: string
+          nullable: true
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        riskReason:
+          type: string
+          nullable: true
+        remediationAdvice:
+          type: string
+          nullable: true
+        isQuantumSafe:
+          type: boolean
+        location:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - environmentId
+        - environmentName
+        - environmentType
+        - scanJobId
+        - name
+        - assetType
+        - riskLevel
+        - isQuantumSafe
+        - tags
+        - createdAt
+        - updatedAt
+
+    AssetListResponse:
+      type: object
+      properties:
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/CryptoAsset"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+      required:
+        - assets
+        - total
+        - page
+        - pageSize
+
+    PolicyCategory:
+      type: string
+      enum: [algorithm, key_length, expiry, quantum_readiness, protocol]
+
+    PolicyRule:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: "#/components/schemas/PolicyCategory"
+        enabled:
+          type: boolean
+        severity:
+          $ref: "#/components/schemas/RiskLevel"
+        ruleExpression:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - name
+        - description
+        - category
+        - enabled
+        - severity
+        - ruleExpression
+        - createdAt
+        - updatedAt
+
+    CreatePolicyBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          $ref: "#/components/schemas/PolicyCategory"
+        severity:
+          $ref: "#/components/schemas/RiskLevel"
+        ruleExpression:
+          type: string
+        enabled:
+          type: boolean
+      required:
+        - name
+        - description
+        - category
+        - severity
+        - ruleExpression
+
+    UpdatePolicyBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        severity:
+          $ref: "#/components/schemas/RiskLevel"
+
+    FindingSeverity:
+      type: string
+      enum: [critical, high, medium, low]
+
+    FindingStatus:
+      type: string
+      enum: [open, acknowledged, resolved, suppressed]
+
+    Finding:
+      type: object
+      properties:
+        id:
+          type: integer
+        assetId:
+          type: integer
+        assetName:
+          type: string
+        environmentId:
+          type: integer
+        environmentName:
+          type: string
+        policyId:
+          type: integer
+          nullable: true
+        policyName:
+          type: string
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/FindingSeverity"
+        status:
+          $ref: "#/components/schemas/FindingStatus"
+        remediationAdvice:
+          type: string
+        detectedAt:
+          type: string
+        resolvedAt:
+          type: string
+          nullable: true
+      required:
+        - id
+        - assetId
+        - assetName
+        - environmentId
+        - environmentName
+        - title
+        - description
+        - severity
+        - status
+        - remediationAdvice
+        - detectedAt
+
+    UpdateFindingBody:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/FindingStatus"
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalAssets:
+          type: integer
+        totalEnvironments:
+          type: integer
+        activeEnvironments:
+          type: integer
+        totalFindings:
+          type: integer
+        criticalFindings:
+          type: integer
+        highFindings:
+          type: integer
+        mediumFindings:
+          type: integer
+        lowFindings:
+          type: integer
+        expiringIn30Days:
+          type: integer
+        expiringIn90Days:
+          type: integer
+        quantumSafeAssets:
+          type: integer
+        quantumVulnerableAssets:
+          type: integer
+        overallRiskScore:
+          type: integer
+        lastScanAt:
+          type: string
+          nullable: true
+      required:
+        - totalAssets
+        - totalEnvironments
+        - activeEnvironments
+        - totalFindings
+        - criticalFindings
+        - highFindings
+        - mediumFindings
+        - lowFindings
+        - expiringIn30Days
+        - expiringIn90Days
+        - quantumSafeAssets
+        - quantumVulnerableAssets
+        - overallRiskScore
+
+    EnvironmentRiskStat:
+      type: object
+      properties:
+        environmentId:
+          type: integer
+        environmentName:
+          type: string
+        environmentType:
+          $ref: "#/components/schemas/EnvironmentType"
+        riskScore:
+          type: integer
+        assetCount:
+          type: integer
+        criticalCount:
+          type: integer
+        highCount:
+          type: integer
+      required:
+        - environmentId
+        - environmentName
+        - environmentType
+        - riskScore
+        - assetCount
+        - criticalCount
+        - highCount
+
+    AssetTypeStat:
+      type: object
+      properties:
+        assetType:
+          $ref: "#/components/schemas/AssetType"
+        count:
+          type: integer
+        criticalCount:
+          type: integer
+        highCount:
+          type: integer
+      required:
+        - assetType
+        - count
+        - criticalCount
+        - highCount
+
+    QuantumReadiness:
+      type: object
+      properties:
+        readinessScore:
+          type: integer
+        quantumSafeCount:
+          type: integer
+        vulnerableCount:
+          type: integer
+        vulnerableAlgorithms:
+          type: array
+          items:
+            type: string
+        safeAlgorithms:
+          type: array
+          items:
+            type: string
+        recommendations:
+          type: array
+          items:
+            type: string
+      required:
+        - readinessScore
+        - quantumSafeCount
+        - vulnerableCount
+        - vulnerableAlgorithms
+        - safeAlgorithms
+        - recommendations
+
+    ConnectionStatus:
+      type: string
+      enum: [active, inactive, error]
+
+    AwsCredentials:
+      type: object
+      description: "AWS credentials. Leave accessKeyId/secretAccessKey blank to use the default credential chain (IAM role, environment variables, etc.)."
+      properties:
+        providerType:
+          type: string
+          enum: [aws]
+        accessKeyId:
+          type: string
+          nullable: true
+        secretAccessKey:
+          type: string
+          nullable: true
+        sessionToken:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        roleArn:
+          type: string
+          nullable: true
+        accountId:
+          type: string
+          nullable: true
+      required:
+        - providerType
+
+    AzureCredentials:
+      type: object
+      properties:
+        providerType:
+          type: string
+          enum: [azure]
+        tenantId:
+          type: string
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+        subscriptionId:
+          type: string
+          nullable: true
+        vaultUrls:
+          type: array
+          items:
+            type: string
+          description: "List of Azure Key Vault URLs to scan, e.g. [\"https://myvault.vault.azure.net\"]"
+          nullable: true
+      required:
+        - providerType
+        - tenantId
+        - clientId
+        - clientSecret
+
+    GcpCredentials:
+      type: object
+      properties:
+        providerType:
+          type: string
+          enum: [gcp]
+        projectId:
+          type: string
+        serviceAccountJson:
+          type: string
+          nullable: true
+          description: "Service account JSON key. Leave blank to use Application Default Credentials."
+        locations:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: "GCP regions to scan for key rings (defaults to global, us-central1, us-east1, europe-west1, asia-east1)"
+        keyRingIds:
+          type: array
+          items:
+            type: string
+          nullable: true
+      required:
+        - providerType
+        - projectId
+
+    VmwareCredentials:
+      type: object
+      properties:
+        providerType:
+          type: string
+          enum: [vmware]
+        vcenterUrl:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+        verifyTls:
+          type: boolean
+      required:
+        - providerType
+        - vcenterUrl
+        - username
+        - password
+
+    OnPremHost:
+      type: object
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+          nullable: true
+        name:
+          type: string
+          nullable: true
+      required:
+        - host
+
+    OnPremCredentials:
+      type: object
+      properties:
+        providerType:
+          type: string
+          enum: [on_premises]
+        hosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OnPremHost"
+          description: "List of hosts to check TLS certificates on"
+      required:
+        - providerType
+        - hosts
+
+    CredentialPayload:
+      oneOf:
+        - $ref: "#/components/schemas/AwsCredentials"
+        - $ref: "#/components/schemas/AzureCredentials"
+        - $ref: "#/components/schemas/GcpCredentials"
+        - $ref: "#/components/schemas/VmwareCredentials"
+        - $ref: "#/components/schemas/OnPremCredentials"
+      discriminator:
+        propertyName: providerType
+        mapping:
+          aws: "#/components/schemas/AwsCredentials"
+          azure: "#/components/schemas/AzureCredentials"
+          gcp: "#/components/schemas/GcpCredentials"
+          vmware: "#/components/schemas/VmwareCredentials"
+          on_premises: "#/components/schemas/OnPremCredentials"
+
+    EnvironmentConnection:
+      type: object
+      properties:
+        id:
+          type: integer
+        environmentId:
+          type: integer
+        providerType:
+          $ref: "#/components/schemas/EnvironmentType"
+        credentials:
+          $ref: "#/components/schemas/CredentialPayload"
+        status:
+          $ref: "#/components/schemas/ConnectionStatus"
+        lastTestedAt:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - environmentId
+        - providerType
+        - credentials
+        - status
+        - createdAt
+        - updatedAt
+
+    CreateConnectionBody:
+      type: object
+      properties:
+        providerType:
+          $ref: "#/components/schemas/EnvironmentType"
+        credentials:
+          $ref: "#/components/schemas/CredentialPayload"
+      required:
+        - providerType
+        - credentials
+
+    UpdateConnectionBody:
+      type: object
+      properties:
+        credentials:
+          $ref: "#/components/schemas/CredentialPayload"
+      required:
+        - credentials
+
+    SystemLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        level:
+          type: string
+          enum: [info, warn, error]
+        category:
+          type: string
+          enum: [scan, finding, policy, environment, connection, system]
+        message:
+          type: string
+        environmentId:
+          type: integer
+          nullable: true
+        environmentName:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - level
+        - category
+        - message
+        - createdAt
+
+    ConnectionTestResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        latencyMs:
+          type: integer
+          nullable: true
+      required:
+        - success
+        - message
