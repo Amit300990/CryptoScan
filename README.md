@@ -14,7 +14,6 @@ Multi-cloud cryptographic asset management platform. Discover, inventory, and mo
 - [API Reference](#api-reference)
 - [Local Development](#local-development)
 - [Production Deployment — Ubuntu](#production-deployment--ubuntu)
-- [Production Deployment — Railway](#production-deployment--railway)
 - [Environment Variables](#environment-variables)
 - [Project Structure](#project-structure)
 
@@ -149,7 +148,7 @@ artifacts/
 | Package manager | pnpm (workspaces) |
 | Type validation | Zod v4 |
 | Code generation | Orval (OpenAPI → types + hooks) |
-| Deployment | Ubuntu systemd + Nginx, or Railway |
+| Deployment | Ubuntu systemd + Nginx |
 
 ---
 
@@ -403,51 +402,6 @@ sudo systemctl restart cryptoguard
 
 ---
 
-## Production Deployment — Railway
-
-The repo includes a `Dockerfile` and `railway.json` for one-click Railway deployment.
-
-### 1. Fork / push the repo to GitHub
-
-### 2. Create a new Railway project
-
-- **New Project → Deploy from GitHub repo → select CryptoScan**
-- Railway auto-detects the Dockerfile
-
-### 3. Add a PostgreSQL database
-
-- **New → Database → PostgreSQL**
-- Railway injects `DATABASE_URL` automatically
-
-### 4. Add environment variables
-
-In the service's **Variables** tab:
-
-```
-JWT_SECRET      = <openssl rand -hex 32>
-ENCRYPTION_KEY  = <openssl rand -hex 32>
-NODE_ENV        = production
-ALLOWED_ORIGINS = https://your-app.up.railway.app
-```
-
-### 5. Deploy
-
-Railway builds the multi-stage Dockerfile, which:
-
-1. Installs all dependencies
-2. Builds the shared libraries
-3. Builds the React frontend (Vite)
-4. Builds the API server (esbuild)
-5. Produces a minimal production image — Node.js + compiled API + frontend static files
-
-The health check at `/api/healthz` confirms a healthy deployment.
-
-### 6. Custom domain (optional)
-
-In Railway: **Settings → Domains → Custom Domain**, add your domain and follow the CNAME instructions. Railway manages TLS automatically.
-
----
-
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -512,7 +466,6 @@ CryptoScan/
 │   └── crypto-mobile/            Expo / React Native mobile app
 │
 ├── Dockerfile                    Multi-stage build (deps → libs → frontend → api → runner)
-├── railway.json                  Railway deployment config
 ├── install.sh                    Ubuntu self-hosted install script
 ├── .env.example                  Environment variable reference
 ├── package.json                  Workspace root — enforces pnpm
