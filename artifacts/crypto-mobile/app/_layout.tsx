@@ -16,7 +16,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
-setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
+const _domain = process.env.EXPO_PUBLIC_DOMAIN;
+if (!_domain) throw new Error("EXPO_PUBLIC_DOMAIN is not set. Add it to your .env file.");
+setBaseUrl(`https://${_domain}`);
 
 SplashScreen.preventAutoHideAsync();
 

@@ -15,77 +15,60 @@ const router: IRouter = Router();
 router.get(
   "/dashboard/summary",
   asyncHandler(async (_req, res): Promise<void> => {
-  const [assetCount] = await db.select({ count: sql<number>`count(*)::int` }).from(cryptoAssetsTable);
-  const [envCount] = await db.select({ count: sql<number>`count(*)::int` }).from(environmentsTable);
-  const [activeEnvCount] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(environmentsTable)
-    .where(eq(environmentsTable.status, "connected"));
+    const now = new Date();
+    const in30 = new Date(now); in30.setDate(now.getDate() + 30);
+    const in90 = new Date(now); in90.setDate(now.getDate() + 90);
 
-  const findingCounts = await db
-    .select({ severity: findingsTable.severity, count: sql<number>`count(*)::int` })
-    .from(findingsTable)
-    .where(eq(findingsTable.status, "open"))
-    .groupBy(findingsTable.severity);
+    const [
+      [assetCount],
+      [envCount],
+      [activeEnvCount],
+      findingCounts,
+      [exp30],
+      [exp90],
+      quantumCounts,
+      envRisks,
+      [lastScan],
+    ] = await Promise.all([
+      db.select({ count: sql<number>`count(*)::int` }).from(cryptoAssetsTable),
+      db.select({ count: sql<number>`count(*)::int` }).from(environmentsTable),
+      db.select({ count: sql<number>`count(*)::int` }).from(environmentsTable).where(eq(environmentsTable.status, "connected")),
+      db.select({ severity: findingsTable.severity, count: sql<number>`count(*)::int` }).from(findingsTable).where(eq(findingsTable.status, "open")).groupBy(findingsTable.severity),
+      db.select({ count: sql<number>`count(*)::int` }).from(cryptoAssetsTable).where(and(lt(cryptoAssetsTable.expiresAt, in30), gt(cryptoAssetsTable.expiresAt, now))),
+      db.select({ count: sql<number>`count(*)::int` }).from(cryptoAssetsTable).where(and(lt(cryptoAssetsTable.expiresAt, in90), gt(cryptoAssetsTable.expiresAt, now))),
+      db.select({ isQuantumSafe: cryptoAssetsTable.isQuantumSafe, count: sql<number>`count(*)::int` }).from(cryptoAssetsTable).groupBy(cryptoAssetsTable.isQuantumSafe),
+      db.select({ riskScore: environmentsTable.riskScore }).from(environmentsTable),
+      db.select({ completedAt: scanJobsTable.completedAt }).from(scanJobsTable).where(eq(scanJobsTable.status, "completed")).orderBy(sql`${scanJobsTable.completedAt} desc`).limit(1),
+    ]);
 
-  const counts = { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
-  for (const f of findingCounts) {
-    counts[f.severity as keyof typeof counts] = f.count;
-    counts.total += f.count;
-  }
+    const counts = { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
+    for (const f of findingCounts) {
+      counts[f.severity as keyof typeof counts] = f.count;
+      counts.total += f.count;
+    }
 
-  const now = new Date();
-  const in30 = new Date(now); in30.setDate(now.getDate() + 30);
-  const in90 = new Date(now); in90.setDate(now.getDate() + 90);
+    const qsSafe = quantumCounts.find((q) => q.isQuantumSafe)?.count ?? 0;
+    const qsVuln = quantumCounts.find((q) => !q.isQuantumSafe)?.count ?? 0;
+    const overallRisk = envRisks.length > 0
+      ? Math.round(envRisks.reduce((sum, e) => sum + e.riskScore, 0) / envRisks.length)
+      : 0;
 
-  const [exp30] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(cryptoAssetsTable)
-    .where(and(lt(cryptoAssetsTable.expiresAt, in30), gt(cryptoAssetsTable.expiresAt, now)));
-
-  const [exp90] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(cryptoAssetsTable)
-    .where(and(lt(cryptoAssetsTable.expiresAt, in90), gt(cryptoAssetsTable.expiresAt, now)));
-
-  const [qsSafe] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(cryptoAssetsTable)
-    .where(eq(cryptoAssetsTable.isQuantumSafe, true));
-
-  const [qsVuln] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(cryptoAssetsTable)
-    .where(eq(cryptoAssetsTable.isQuantumSafe, false));
-
-  const envs = await db.select({ riskScore: environmentsTable.riskScore }).from(environmentsTable);
-  const overallRisk = envs.length > 0
-    ? Math.round(envs.reduce((sum, e) => sum + e.riskScore, 0) / envs.length)
-    : 0;
-
-  const [lastScan] = await db
-    .select({ completedAt: scanJobsTable.completedAt })
-    .from(scanJobsTable)
-    .where(eq(scanJobsTable.status, "completed"))
-    .orderBy(sql`${scanJobsTable.completedAt} desc`)
-    .limit(1);
-
-  res.json({
-    totalAssets: assetCount?.count ?? 0,
-    totalEnvironments: envCount?.count ?? 0,
-    activeEnvironments: activeEnvCount?.count ?? 0,
-    totalFindings: counts.total,
-    criticalFindings: counts.critical,
-    highFindings: counts.high,
-    mediumFindings: counts.medium,
-    lowFindings: counts.low,
-    expiringIn30Days: exp30?.count ?? 0,
-    expiringIn90Days: exp90?.count ?? 0,
-    quantumSafeAssets: qsSafe?.count ?? 0,
-    quantumVulnerableAssets: qsVuln?.count ?? 0,
-    overallRiskScore: overallRisk,
-    lastScanAt: lastScan?.completedAt?.toISOString() ?? null,
-  });
+    res.json({
+      totalAssets: assetCount?.count ?? 0,
+      totalEnvironments: envCount?.count ?? 0,
+      activeEnvironments: activeEnvCount?.count ?? 0,
+      totalFindings: counts.total,
+      criticalFindings: counts.critical,
+      highFindings: counts.high,
+      mediumFindings: counts.medium,
+      lowFindings: counts.low,
+      expiringIn30Days: exp30?.count ?? 0,
+      expiringIn90Days: exp90?.count ?? 0,
+      quantumSafeAssets: qsSafe,
+      quantumVulnerableAssets: qsVuln,
+      overallRiskScore: overallRisk,
+      lastScanAt: lastScan?.completedAt?.toISOString() ?? null,
+    });
   }),
 );
 
@@ -233,34 +216,29 @@ router.get(
 router.get(
   "/dashboard/quantum-readiness",
   asyncHandler(async (_req, res): Promise<void> => {
-    const assets = await db
-      .select({
-        algorithm: cryptoAssetsTable.algorithm,
-        isQuantumSafe: cryptoAssetsTable.isQuantumSafe,
-      })
-      .from(cryptoAssetsTable);
+    const [aggRows, vulnAlgoRows, safeAlgoRows] = await Promise.all([
+      db.select({ isQuantumSafe: cryptoAssetsTable.isQuantumSafe, count: sql<number>`count(*)::int` })
+        .from(cryptoAssetsTable)
+        .groupBy(cryptoAssetsTable.isQuantumSafe),
+      db.select({ algorithm: cryptoAssetsTable.algorithm })
+        .from(cryptoAssetsTable)
+        .where(eq(cryptoAssetsTable.isQuantumSafe, false))
+        .groupBy(cryptoAssetsTable.algorithm)
+        .limit(10),
+      db.select({ algorithm: cryptoAssetsTable.algorithm })
+        .from(cryptoAssetsTable)
+        .where(eq(cryptoAssetsTable.isQuantumSafe, true))
+        .groupBy(cryptoAssetsTable.algorithm),
+    ]);
 
-    const safeCount = assets.filter((a) => a.isQuantumSafe).length;
-    const vulnCount = assets.filter((a) => !a.isQuantumSafe).length;
+    const safeCount = aggRows.find((r) => r.isQuantumSafe)?.count ?? 0;
+    const vulnCount = aggRows.find((r) => !r.isQuantumSafe)?.count ?? 0;
+    const total = safeCount + vulnCount;
 
-    const vulnAlgos = [
-      ...new Set(
-        assets
-          .filter((a) => !a.isQuantumSafe && a.algorithm)
-          .map((a) => a.algorithm as string),
-      ),
-    ].slice(0, 10);
+    const vulnAlgos = vulnAlgoRows.map((r) => r.algorithm).filter((a): a is string => a !== null);
+    const safeAlgos = safeAlgoRows.map((r) => r.algorithm).filter((a): a is string => a !== null);
 
-    const safeAlgos = [
-      ...new Set(
-        assets
-          .filter((a) => a.isQuantumSafe && a.algorithm)
-          .map((a) => a.algorithm as string),
-      ),
-    ];
-
-    const readinessScore =
-      assets.length > 0 ? Math.round((safeCount / assets.length) * 100) : 0;
+    const readinessScore = total > 0 ? Math.round((safeCount / total) * 100) : 0;
 
     res.json({
       readinessScore,

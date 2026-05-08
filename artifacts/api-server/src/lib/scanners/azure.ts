@@ -118,7 +118,7 @@ async function scanVaultKeys(
         riskReason = "ECDSA keys are quantum-vulnerable.";
         remediationAdvice = "Plan migration to post-quantum key types when available in Azure Key Vault.";
       } else {
-        const rsaKeySize = key.key?.n ? Math.floor(key.key.n.length * 8 / 10) : 2048;
+        const rsaKeySize = key.key?.n ? Math.floor(key.key.n.length * 8) : 2048;
         algorithm = "RSA";
         keyLength = rsaKeySize >= 3000 ? 4096 : 2048;
         isQuantumSafe = false;

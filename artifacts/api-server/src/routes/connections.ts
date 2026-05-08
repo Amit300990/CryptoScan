@@ -88,6 +88,9 @@ router.post(
       throw new ApiError(400, "VALIDATION_ERROR", parsed.error.message);
     }
 
+    if (!isEncryptionEnabled()) {
+      throw new ApiError(503, "ENCRYPTION_NOT_CONFIGURED", "CREDENTIAL_ENCRYPTION_KEY is not set. Cannot store credentials securely.");
+    }
     const credJson = JSON.stringify(parsed.data.credentials);
     const [connection] = await db
       .insert(environmentConnectionsTable)
@@ -115,6 +118,9 @@ router.put(
       throw new ApiError(400, "VALIDATION_ERROR", parsed.error.message);
     }
 
+    if (!isEncryptionEnabled()) {
+      throw new ApiError(503, "ENCRYPTION_NOT_CONFIGURED", "CREDENTIAL_ENCRYPTION_KEY is not set. Cannot store credentials securely.");
+    }
     const credJson = JSON.stringify(parsed.data.credentials);
     const [connection] = await db
       .update(environmentConnectionsTable)
@@ -145,14 +151,19 @@ router.delete(
       throw new ApiError(400, "VALIDATION_ERROR", params.error.message);
     }
 
-    await db
+    const [deleted] = await db
       .delete(environmentConnectionsTable)
       .where(
         and(
           eq(environmentConnectionsTable.id, params.data.connectionId),
           eq(environmentConnectionsTable.environmentId, params.data.id),
         ),
-      );
+      )
+      .returning({ id: environmentConnectionsTable.id });
+
+    if (!deleted) {
+      throw new ApiError(404, "NOT_FOUND", "Connection not found");
+    }
 
     res.sendStatus(204);
   }),

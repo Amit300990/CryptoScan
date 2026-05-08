@@ -1,4 +1,5 @@
 import { db, systemLogsTable } from "@workspace/db";
+import { logger } from "./logger";
 
 type LogLevel = "info" | "warn" | "error";
 type LogCategory = "scan" | "finding" | "policy" | "environment" | "connection" | "system";
@@ -22,7 +23,7 @@ export async function writeLog(opts: WriteLogOptions): Promise<void> {
       environmentName: opts.environmentName ?? null,
       metadata: opts.metadata ? JSON.stringify(opts.metadata) : null,
     });
-  } catch {
-    // Log writes are best-effort; never throw
+  } catch (err) {
+    logger.warn({ err }, "Failed to write audit log");
   }
 }

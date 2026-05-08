@@ -26,6 +26,14 @@ import type {
 
 export type { AssetTemplate };
 
+// Synchronous in-process lock — checked and set before any await in runScan,
+// so check+set is atomic within a single Node.js event-loop turn.
+const _scanningEnvironments = new Set<number>();
+
+export function isScanRunning(environmentId: number): boolean {
+  return _scanningEnvironments.has(environmentId);
+}
+
 function computeRiskScore(riskLevels: string[]): number {
   let score = 0;
   for (const level of riskLevels) {
@@ -63,28 +71,13 @@ async function getConnectionCredentials(environmentId: number): Promise<Record<s
     .limit(1);
 
   if (!connection) {
-    const [anyConnection] = await db
-      .select()
-      .from(environmentConnectionsTable)
-      .where(eq(environmentConnectionsTable.environmentId, environmentId))
-      .orderBy(desc(environmentConnectionsTable.updatedAt))
-      .limit(1);
-
-    if (anyConnection) {
-      try {
-        return JSON.parse(decryptCredentials(anyConnection.credentials)) as Record<string, unknown>;
-      } catch {
-        return {};
-      }
-    }
-    return {};
+    throw new Error(
+      `No active connection found for environment ${environmentId}. ` +
+      "Configure and activate a connection before scanning.",
+    );
   }
 
-  try {
-    return JSON.parse(decryptCredentials(connection.credentials)) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
+  return JSON.parse(decryptCredentials(connection.credentials)) as Record<string, unknown>;
 }
 
 async function discoverAssets(envType: string, credentials: Record<string, unknown>): Promise<AssetTemplate[]> {
@@ -217,8 +210,17 @@ export async function testConnection(environmentId: number, connectionId: number
 }
 
 export async function runScan(environmentId: number): Promise<number> {
+  // Set in-memory lock before first await — atomic within the Node.js event loop.
+  if (_scanningEnvironments.has(environmentId)) {
+    throw new Error("A scan is already running for this environment.");
+  }
+  _scanningEnvironments.add(environmentId);
+
   const [env] = await db.select().from(environmentsTable).where(eq(environmentsTable.id, environmentId));
-  if (!env) throw new Error(`Environment ${environmentId} not found`);
+  if (!env) {
+    _scanningEnvironments.delete(environmentId);
+    throw new Error(`Environment ${environmentId} not found`);
+  }
 
   const [job] = await db
     .insert(scanJobsTable)
@@ -244,7 +246,7 @@ export async function runScan(environmentId: number): Promise<number> {
   void (async () => {
     let assetTemplates: AssetTemplate[] = [];
     let findingsCount = 0;
-    const insertedAssets: { id: number }[] = [];
+    let insertedCount = 0;
 
     try {
       const credentials = await getConnectionCredentials(environmentId);
@@ -262,13 +264,14 @@ export async function runScan(environmentId: number): Promise<number> {
       }
 
       const totalAssets = assetTemplates.length;
+      const BATCH = 50;
 
-      for (let i = 0; i < assetTemplates.length; i++) {
-        const a = assetTemplates[i];
+      for (let i = 0; i < assetTemplates.length; i += BATCH) {
+        const batch = assetTemplates.slice(i, i + BATCH);
 
-        const [insertedAsset] = await db
+        const insertedBatch = await db
           .insert(cryptoAssetsTable)
-          .values({
+          .values(batch.map((a) => ({
             environmentId,
             scanJobId: job.id,
             name: a.name,
@@ -284,48 +287,44 @@ export async function runScan(environmentId: number): Promise<number> {
             isQuantumSafe: a.isQuantumSafe,
             location: a.location ?? null,
             tags: JSON.stringify(a.tags),
-          })
+          })))
           .returning();
 
-        insertedAssets.push(insertedAsset);
+        insertedCount += insertedBatch.length;
 
-        const finding = generateFindingForAsset(a);
-        if (finding && (a.riskLevel === "critical" || a.riskLevel === "high" || a.riskLevel === "medium")) {
-          await db.insert(findingsTable).values({
-            assetId: insertedAsset.id,
-            environmentId,
-            title: finding.title,
-            description: finding.description,
-            severity: finding.severity,
-            status: "open",
-            remediationAdvice: finding.remediationAdvice,
-            detectedAt: new Date(),
-          });
-          findingsCount++;
+        const findingsToInsert = batch
+          .map((a, idx) => {
+            const finding = generateFindingForAsset(a);
+            if (!finding) return null;
+            return {
+              assetId: insertedBatch[idx].id,
+              environmentId,
+              title: finding.title,
+              description: finding.description,
+              severity: finding.severity,
+              status: "open" as const,
+              remediationAdvice: finding.remediationAdvice,
+              detectedAt: new Date(),
+            };
+          })
+          .filter((f): f is NonNullable<typeof f> => f !== null);
 
-          scanEventBus.emitProgress({
-            type: "finding_generated",
-            jobId: job.id,
-            environmentId,
-            assetsDiscovered: insertedAssets.length,
-            totalAssets,
-            findingsGenerated: findingsCount,
-            assetName: a.name,
-          });
-        } else {
-          scanEventBus.emitProgress({
-            type: "asset_discovered",
-            jobId: job.id,
-            environmentId,
-            assetsDiscovered: insertedAssets.length,
-            totalAssets,
-            findingsGenerated: findingsCount,
-            assetName: a.name,
-          });
+        if (findingsToInsert.length > 0) {
+          await db.insert(findingsTable).values(findingsToInsert);
+          findingsCount += findingsToInsert.length;
         }
 
+        scanEventBus.emitProgress({
+          type: "asset_discovered",
+          jobId: job.id,
+          environmentId,
+          assetsDiscovered: insertedCount,
+          totalAssets,
+          findingsGenerated: findingsCount,
+        });
+
         await db.update(scanJobsTable).set({
-          assetsDiscovered: insertedAssets.length,
+          assetsDiscovered: insertedCount,
           findingsGenerated: findingsCount,
         }).where(eq(scanJobsTable.id, job.id));
       }
@@ -335,65 +334,67 @@ export async function runScan(environmentId: number): Promise<number> {
       await db.update(scanJobsTable).set({
         status: "completed",
         completedAt: new Date(),
-        assetsDiscovered: insertedAssets.length,
+        assetsDiscovered: insertedCount,
         findingsGenerated: findingsCount,
       }).where(eq(scanJobsTable.id, job.id));
 
       await db.update(environmentsTable).set({
         status: "connected",
         lastScannedAt: new Date(),
-        assetCount: insertedAssets.length,
+        assetCount: insertedCount,
         riskScore,
       }).where(eq(environmentsTable.id, environmentId));
 
-      logger.info({ environmentId, assetsDiscovered: insertedAssets.length, findingsGenerated: findingsCount }, "Scan completed");
+      logger.info({ environmentId, assetsDiscovered: insertedCount, findingsGenerated: findingsCount }, "Scan completed");
 
       await writeLog({
         category: "scan",
-        message: `Scan completed for "${env.name}": ${insertedAssets.length} assets discovered, ${findingsCount} findings generated`,
+        message: `Scan completed for "${env.name}": ${insertedCount} assets discovered, ${findingsCount} findings generated`,
         environmentId,
         environmentName: env.name,
-        metadata: { jobId: job.id, assetsDiscovered: insertedAssets.length, findingsGenerated: findingsCount, riskScore },
+        metadata: { jobId: job.id, assetsDiscovered: insertedCount, findingsGenerated: findingsCount, riskScore },
       });
 
       scanEventBus.emitProgress({
         type: "scan_completed",
         jobId: job.id,
         environmentId,
-        assetsDiscovered: insertedAssets.length,
+        assetsDiscovered: insertedCount,
         totalAssets: assetTemplates.length,
         findingsGenerated: findingsCount,
       });
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+    } catch (scanErr) {
+      const errMsg = scanErr instanceof Error ? scanErr.message : String(scanErr);
+      logger.error({ err: scanErr, environmentId }, "Scan failed");
 
-      await db.update(scanJobsTable).set({
-        status: "failed",
-        completedAt: new Date(),
-        errorMessage: errMsg,
-      }).where(eq(scanJobsTable.id, job.id));
-      await db.update(environmentsTable).set({ status: "error" }).where(eq(environmentsTable.id, environmentId));
-
-      await writeLog({
-        level: "error",
-        category: "scan",
-        message: `Scan failed for "${env.name}": ${errMsg}`,
-        environmentId,
-        environmentName: env.name,
-        metadata: { jobId: job.id },
-      });
+      await Promise.allSettled([
+        db.update(scanJobsTable).set({
+          status: "failed",
+          completedAt: new Date(),
+          errorMessage: errMsg,
+        }).where(eq(scanJobsTable.id, job.id)),
+        db.update(environmentsTable).set({ status: "error" }).where(eq(environmentsTable.id, environmentId)),
+        writeLog({
+          level: "error",
+          category: "scan",
+          message: `Scan failed for "${env.name}": ${errMsg}`,
+          environmentId,
+          environmentName: env.name,
+          metadata: { jobId: job.id },
+        }),
+      ]);
 
       scanEventBus.emitProgress({
         type: "scan_failed",
         jobId: job.id,
         environmentId,
-        assetsDiscovered: insertedAssets.length,
+        assetsDiscovered: insertedCount,
         totalAssets: assetTemplates.length,
         findingsGenerated: findingsCount,
         errorMessage: errMsg,
       });
-
-      logger.error({ err, environmentId }, "Scan failed");
+    } finally {
+      _scanningEnvironments.delete(environmentId);
     }
   })();
 

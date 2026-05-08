@@ -9,10 +9,11 @@ import {
   DeleteEnvironmentParams,
   TriggerScanParams,
 } from "@workspace/api-zod";
-import { runScan } from "../lib/scanner";
+import { runScan, isScanRunning } from "../lib/scanner";
 import { writeLog } from "../lib/writeLog";
 import { scanEventBus, type ScanProgressEvent } from "../lib/scanEventBus";
 import { asyncHandler, ApiError } from "../middlewares/errorHandler";
+import { scanRateLimit } from "../app";
 
 const router: IRouter = Router();
 
@@ -126,37 +127,24 @@ router.delete(
 
     const id = params.data.id;
 
-    const assets = await db
-      .select({ id: cryptoAssetsTable.id })
-      .from(cryptoAssetsTable)
-      .where(eq(cryptoAssetsTable.environmentId, id));
+    await db.transaction(async (tx) => {
+      const assets = await tx
+        .select({ id: cryptoAssetsTable.id })
+        .from(cryptoAssetsTable)
+        .where(eq(cryptoAssetsTable.environmentId, id));
 
-    if (assets.length > 0) {
-      await db
-        .delete(findingsTable)
-        .where(
-          inArray(
-            findingsTable.assetId,
-            assets.map((a) => a.id),
-          ),
-        );
-    }
+      if (assets.length > 0) {
+        await tx
+          .delete(findingsTable)
+          .where(inArray(findingsTable.assetId, assets.map((a) => a.id)));
+      }
 
-    await db
-      .delete(findingsTable)
-      .where(eq(findingsTable.environmentId, id));
-    await db
-      .delete(cryptoAssetsTable)
-      .where(eq(cryptoAssetsTable.environmentId, id));
-    await db
-      .delete(scanJobsTable)
-      .where(eq(scanJobsTable.environmentId, id));
-    await db
-      .delete(environmentConnectionsTable)
-      .where(eq(environmentConnectionsTable.environmentId, id));
-    await db
-      .delete(environmentsTable)
-      .where(eq(environmentsTable.id, id));
+      await tx.delete(findingsTable).where(eq(findingsTable.environmentId, id));
+      await tx.delete(cryptoAssetsTable).where(eq(cryptoAssetsTable.environmentId, id));
+      await tx.delete(scanJobsTable).where(eq(scanJobsTable.environmentId, id));
+      await tx.delete(environmentConnectionsTable).where(eq(environmentConnectionsTable.environmentId, id));
+      await tx.delete(environmentsTable).where(eq(environmentsTable.id, id));
+    });
 
     res.sendStatus(204);
   }),
@@ -164,6 +152,7 @@ router.delete(
 
 router.post(
   "/environments/:id/scan",
+  scanRateLimit,
   asyncHandler(async (req, res): Promise<void> => {
     const params = TriggerScanParams.safeParse(req.params);
     if (!params.success) {
@@ -182,28 +171,21 @@ router.post(
       throw new ApiError(404, "NOT_FOUND", "Environment not found");
     }
 
-    // Prevent concurrent scans - check if scan is already running
+    // isScanRunning uses an in-memory set checked synchronously before any
+    // await, making the check-and-set atomic within a single Node.js process.
+    // The DB check below catches stale "running" jobs after a server restart.
+    if (isScanRunning(environmentId)) {
+      throw new ApiError(409, "SCAN_IN_PROGRESS", "A scan is already running for this environment.");
+    }
+
     const [existingJob] = await db
-      .select({
-        id: scanJobsTable.id,
-        status: scanJobsTable.status,
-      })
+      .select({ id: scanJobsTable.id })
       .from(scanJobsTable)
-      .where(
-        and(
-          eq(scanJobsTable.environmentId, environmentId),
-          eq(scanJobsTable.status, "running"),
-        ),
-      )
-      .orderBy(desc(scanJobsTable.createdAt))
+      .where(and(eq(scanJobsTable.environmentId, environmentId), eq(scanJobsTable.status, "running")))
       .limit(1);
 
     if (existingJob) {
-      throw new ApiError(
-        409,
-        "SCAN_IN_PROGRESS",
-        "A scan is already running for this environment. Please wait for it to complete.",
-      );
+      throw new ApiError(409, "SCAN_IN_PROGRESS", "A scan is already running for this environment. Please wait for it to complete.");
     }
 
     const jobId = await runScan(environmentId);

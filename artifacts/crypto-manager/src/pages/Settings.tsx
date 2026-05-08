@@ -2,23 +2,18 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings2, Radio, Shield, ChevronRight, Save, Wifi, Key, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { customFetch } from "@workspace/api-client-react";
 
-const API = import.meta.env.BASE_URL.replace(/\/$/, "") + "/api";
-
-async function fetchSetting(key: string) {
-  const r = await fetch(`${API}/settings/${key}`);
-  if (!r.ok) throw new Error("Failed to fetch settings");
-  return r.json();
+async function fetchSetting(key: string): Promise<Record<string, unknown>> {
+  return customFetch<Record<string, unknown>>(`/api/settings/${key}`);
 }
 
-async function saveSetting(key: string, value: Record<string, unknown>) {
-  const r = await fetch(`${API}/settings/${key}`, {
+async function saveSetting(key: string, value: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return customFetch<Record<string, unknown>>(`/api/settings/${key}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(value),
   });
-  if (!r.ok) throw new Error("Failed to save settings");
-  return r.json();
 }
 
 type Tab = "policy" | "syslog" | "sso";

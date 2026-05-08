@@ -1,6 +1,7 @@
 import { KeyManagementServiceClient } from "@google-cloud/kms";
 import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
 import { type GcpCredentials, type AssetTemplate } from "./types";
+import { logger } from "../logger";
 
 type GcpClientOptions = {
   projectId: string;
@@ -33,13 +34,6 @@ export async function scanGcp(creds: GcpCredentials): Promise<AssetTemplate[]> {
     scanSecretManager(creds, clientOptions, assets),
   ]);
 
-  if (assets.length === 0) {
-    throw new Error(
-      `No Cloud KMS keys or Secret Manager secrets found in project "${creds.projectId}". ` +
-      "Ensure the service account has cloudkms.cryptoKeys.list, cloudkms.keyRings.list, and secretmanager.secrets.list permissions.",
-    );
-  }
-
   return assets;
 }
 
@@ -67,6 +61,7 @@ async function scanCloudKms(
             if (!ck.name) continue;
 
             try {
+
               const keyName = ck.name.split("/").pop() ?? ck.name;
               const ringName = ring.name.split("/").pop() ?? ring.name;
               const purpose = ck.purpose?.toString() ?? "ENCRYPT_DECRYPT";
@@ -143,13 +138,16 @@ async function scanCloudKms(
                 location: `${location}/cloudkms/projects/${creds.projectId}/keyRings/${ringName}/cryptoKeys/${keyName}`,
                 tags: ["cloud-kms", isSymmetric ? "symmetric" : "asymmetric", location, "gcp"],
               });
-            } catch {
+            } catch (err) {
+              logger.debug({ err, key: ck.name }, "GCP KMS: failed to process crypto key");
             }
           }
-        } catch {
+        } catch (err) {
+          logger.debug({ err, ring: ring.name }, "GCP KMS: failed to list crypto keys for ring");
         }
       }
-    } catch {
+    } catch (err) {
+      logger.debug({ err, location }, "GCP KMS: failed to list key rings for location");
     }
   }
 }
@@ -219,9 +217,11 @@ async function scanSecretManager(
             ...(hasRotation ? ["auto-rotation"] : ["no-rotation"]),
           ],
         });
-      } catch {
+      } catch (err) {
+        logger.debug({ err, secret: secret.name }, "GCP Secret Manager: failed to process secret");
       }
     }
-  } catch {
+  } catch (err) {
+    logger.debug({ err, project: creds.projectId }, "GCP Secret Manager: failed to list secrets");
   }
 }

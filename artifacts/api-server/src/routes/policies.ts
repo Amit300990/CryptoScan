@@ -97,13 +97,15 @@ router.delete(
       .select()
       .from(policyRulesTable)
       .where(eq(policyRulesTable.id, params.data.id));
+    if (!policy) {
+      throw new ApiError(404, "NOT_FOUND", "Policy not found");
+    }
     await db.delete(policyRulesTable).where(eq(policyRulesTable.id, params.data.id));
-    if (policy)
-      void writeLog({
-        category: "policy",
-        message: `Policy deleted: "${policy.name}"`,
-        metadata: { policyId: params.data.id },
-      });
+    void writeLog({
+      category: "policy",
+      message: `Policy deleted: "${policy.name}"`,
+      metadata: { policyId: params.data.id },
+    });
     res.sendStatus(204);
   }),
 );

@@ -27,7 +27,7 @@ router.get(
       .from(systemLogsTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(systemLogsTable.createdAt))
-      .limit(limit ?? 200);
+      .limit(Math.min(limit ?? 200, 1000));
 
     res.json(
       rows.map((r) => ({

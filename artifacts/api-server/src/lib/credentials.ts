@@ -1,4 +1,5 @@
 import * as crypto from "crypto";
+import { logger } from "./logger";
 
 const ALGORITHM = "aes-256-gcm";
 const KEY_ENV = "CREDENTIAL_ENCRYPTION_KEY";
@@ -38,6 +39,7 @@ export function encryptCredentials(plainJson: string): string {
 
 export function decryptCredentials(stored: string): string {
   if (!stored.startsWith(ENCRYPTED_PREFIX)) {
+    logger.warn("Decrypting unencrypted credential — re-encrypt by updating the connection.");
     return stored;
   }
 

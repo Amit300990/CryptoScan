@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import type { InferSelectModel, SQL } from "drizzle-orm";
 import { db, findingsTable, cryptoAssetsTable, environmentsTable, policyRulesTable } from "@workspace/db";
 import { ListFindingsQueryParams, GetFindingParams, UpdateFindingParams, UpdateFindingBody } from "@workspace/api-zod";
@@ -34,7 +34,7 @@ function parseFinding(f: FindingRow) {
   };
 }
 
-async function findingsWithJoins(whereClause?: SQL): Promise<FindingRow[]> {
+async function findingsWithJoins(whereClause?: SQL, limit = 500, offset = 0): Promise<FindingRow[]> {
   const rows = await db
     .select({
       id: findingsTable.id,
@@ -57,7 +57,9 @@ async function findingsWithJoins(whereClause?: SQL): Promise<FindingRow[]> {
     .innerJoin(environmentsTable, eq(findingsTable.environmentId, environmentsTable.id))
     .leftJoin(policyRulesTable, eq(findingsTable.policyId, policyRulesTable.id))
     .where(whereClause)
-    .orderBy(findingsTable.detectedAt);
+    .orderBy(desc(findingsTable.detectedAt))
+    .limit(Math.min(limit, 1000))
+    .offset(offset);
   return rows;
 }
 
@@ -76,7 +78,10 @@ router.get(
     if (parsed.data.status) conditions.push(eq(findingsTable.status, parsed.data.status));
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    const rows = await findingsWithJoins(whereClause);
+    const page = Number(req.query.page ?? 1);
+    const pageSize = Math.min(Number(req.query.pageSize ?? 500), 1000);
+    const offset = (page - 1) * pageSize;
+    const rows = await findingsWithJoins(whereClause, pageSize, offset);
     res.json(rows.map(parseFinding));
   }),
 );
@@ -123,7 +128,10 @@ router.put(
       updates.resolvedAt = null;
     }
 
-    await db.update(findingsTable).set(updates).where(eq(findingsTable.id, params.data.id));
+    const [updated] = await db.update(findingsTable).set(updates).where(eq(findingsTable.id, params.data.id)).returning({ id: findingsTable.id });
+    if (!updated) {
+      throw new ApiError(404, "NOT_FOUND", "Finding not found");
+    }
     const rows = await findingsWithJoins(eq(findingsTable.id, params.data.id));
     if (!rows[0]) {
       throw new ApiError(404, "NOT_FOUND", "Finding not found");

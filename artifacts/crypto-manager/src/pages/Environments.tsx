@@ -247,7 +247,7 @@ function OnPremForm({
   value,
   onChange,
 }: {
-  value: Partial<{ host: string; port: number; username: string; password: string; useTls: boolean }>;
+  value: Partial<{ host: string; port: number; name: string }>;
   onChange: (v: typeof value) => void;
 }) {
   return (
@@ -258,22 +258,15 @@ function OnPremForm({
           <Input className="h-8 text-xs" placeholder="192.168.1.100" value={value.host ?? ""} onChange={(e) => onChange({ ...value, host: e.target.value })} />
         </div>
         <div className="grid gap-1.5">
-          <Label className="text-xs">Port *</Label>
-          <Input className="h-8 text-xs" type="number" placeholder="22" value={value.port ?? ""} onChange={(e) => onChange({ ...value, port: parseInt(e.target.value) || undefined })} />
+          <Label className="text-xs">Port</Label>
+          <Input className="h-8 text-xs" type="number" placeholder="443" value={value.port ?? ""} onChange={(e) => onChange({ ...value, port: parseInt(e.target.value) || undefined })} />
         </div>
       </div>
       <div className="grid gap-1.5">
-        <Label className="text-xs">Username *</Label>
-        <Input className="h-8 text-xs" placeholder="admin" value={value.username ?? ""} onChange={(e) => onChange({ ...value, username: e.target.value })} />
+        <Label className="text-xs">Display Name</Label>
+        <Input className="h-8 text-xs" placeholder="My Server" value={value.name ?? ""} onChange={(e) => onChange({ ...value, name: e.target.value })} />
       </div>
-      <div className="grid gap-1.5">
-        <Label className="text-xs">Password</Label>
-        <Input className="h-8 text-xs" type="password" placeholder="••••••••" value={value.password ?? ""} onChange={(e) => onChange({ ...value, password: e.target.value })} />
-      </div>
-      <div className="flex items-center gap-2 mt-1">
-        <Switch id="use-tls" checked={value.useTls ?? false} onCheckedChange={(v) => onChange({ ...value, useTls: v })} />
-        <Label htmlFor="use-tls" className="text-xs cursor-pointer">Use TLS</Label>
-      </div>
+      <p className="text-xs text-muted-foreground">CryptoGuard will connect to this host and scan its TLS certificate and configuration.</p>
     </div>
   );
 }
@@ -309,9 +302,9 @@ function buildCredentialPayload(providerType: string, state: CredentialFormState
       return { providerType: "vmware", vcenterUrl, username, password, verifyTls: (state.verifyTls as boolean) ?? true };
     }
     case "on_premises": {
-      const { host, port, username } = state as { host?: string; port?: number; username?: string };
-      if (!host || !port || !username) return null;
-      return { providerType: "on_premises", host, port, username, password: (state.password as string) || undefined, useTls: (state.useTls as boolean) ?? false };
+      const { host, port, name } = state as { host?: string; port?: number; name?: string };
+      if (!host) return null;
+      return { providerType: "on_premises", hosts: [{ host, port: port ?? 443, name: name || host }] } as unknown as CredentialPayload;
     }
     default:
       return null;

@@ -36,8 +36,13 @@ export async function scanAws(creds: AwsCredentials): Promise<AssetTemplate[]> {
 async function scanAcm(config: ReturnType<typeof makeConfig>, assets: AssetTemplate[]): Promise<void> {
   const client = new ACMClient(config);
 
-  const listRes = await client.send(new ListCertificatesCommand({ MaxItems: 1000 }));
-  const certs = listRes.CertificateSummaryList ?? [];
+  const certs = [];
+  let nextToken: string | undefined;
+  do {
+    const listRes = await client.send(new ListCertificatesCommand({ MaxItems: 1000, NextToken: nextToken }));
+    certs.push(...(listRes.CertificateSummaryList ?? []));
+    nextToken = listRes.NextToken;
+  } while (nextToken);
 
   for (const cert of certs) {
     if (!cert.CertificateArn) continue;
@@ -132,8 +137,13 @@ async function scanKms(config: ReturnType<typeof makeConfig>, assets: AssetTempl
 async function scanIam(config: ReturnType<typeof makeConfig>, assets: AssetTemplate[]): Promise<void> {
   const client = new IAMClient(config);
 
-  const usersRes = await client.send(new ListUsersCommand({ MaxItems: 100 }));
-  const users = usersRes.Users ?? [];
+  const users = [];
+  let userMarker: string | undefined;
+  do {
+    const usersRes = await client.send(new ListUsersCommand({ MaxItems: 1000, Marker: userMarker }));
+    users.push(...(usersRes.Users ?? []));
+    userMarker = usersRes.IsTruncated ? usersRes.Marker : undefined;
+  } while (userMarker);
 
   for (const user of users) {
     try {
@@ -169,9 +179,9 @@ async function scanIam(config: ReturnType<typeof makeConfig>, assets: AssetTempl
 
         assets.push({
           name: `iam-access-key-${user.UserName}`,
-          assetType: "asymmetric_key",
-          algorithm: "RSA",
-          keyLength: 2048,
+          assetType: "secret",
+          algorithm: "HMAC-SHA256",
+          keyLength: 256,
           issuer: "IAM",
           subject: user.Arn ?? user.UserName,
           expiresAt: null,
@@ -212,8 +222,13 @@ async function scanIam(config: ReturnType<typeof makeConfig>, assets: AssetTempl
 async function scanSecretsManager(config: ReturnType<typeof makeConfig>, assets: AssetTemplate[]): Promise<void> {
   const client = new SecretsManagerClient(config);
 
-  const listRes = await client.send(new ListSecretsCommand({ MaxResults: 100 }));
-  const secrets = listRes.SecretList ?? [];
+  const secrets = [];
+  let secretNextToken: string | undefined;
+  do {
+    const listRes = await client.send(new ListSecretsCommand({ MaxResults: 100, NextToken: secretNextToken }));
+    secrets.push(...(listRes.SecretList ?? []));
+    secretNextToken = listRes.NextToken;
+  } while (secretNextToken);
 
   for (const secret of secrets) {
     if (!secret.Name) continue;

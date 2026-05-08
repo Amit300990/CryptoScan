@@ -22,7 +22,39 @@ type TlsCheckResult = {
   error: string | null;
 };
 
+const VALID_HOSTNAME = /^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?$/;
+
+function validateHost(host: string): void {
+  if (!VALID_HOSTNAME.test(host)) {
+    throw new Error(`Invalid hostname: "${host}". Must contain only alphanumeric characters, dots, and hyphens.`);
+  }
+}
+
+function validatePort(port: number): void {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid port: ${port}. Must be an integer between 1 and 65535.`);
+  }
+}
+
+async function withConcurrencyLimit<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number,
+): Promise<T[]> {
+  const results: T[] = [];
+  let idx = 0;
+  async function worker() {
+    while (idx < tasks.length) {
+      const i = idx++;
+      results[i] = await tasks[i]();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
+}
+
 function runOpenssl(host: string, port: number, timeoutMs: number): Promise<string> {
+  validateHost(host);
+  validatePort(port);
   return new Promise((resolve, reject) => {
     const args = [
       "s_client",
@@ -231,8 +263,9 @@ export async function scanOnPrem(creds: OnPremCredentials): Promise<AssetTemplat
     );
   }
 
-  const results = await Promise.all(
-    creds.hosts.map((h) => checkViaOpenssl(h.host, h.port ?? 443)),
+  const results = await withConcurrencyLimit(
+    creds.hosts.map((h) => () => checkViaOpenssl(h.host, h.port ?? 443)),
+    10,
   );
 
   const assets: AssetTemplate[] = [];
