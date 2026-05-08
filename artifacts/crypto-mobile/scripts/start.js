@@ -2,13 +2,11 @@
 /**
  * CryptoGuard Mobile startup wrapper.
  *
- * The artifact-managed workflow health check goes through the Expo dev domain
- * (which has a deadlock: routing requires the workflow to already be RUNNING).
- * This script is used instead via a configureWorkflow-based workflow whose
- * health check is a direct TCP check to port 5000.
+ * Starts a lightweight HTTP health-check server alongside Metro bundler,
+ * so process managers can verify the service is up via a simple TCP check.
  *
- * - Port 5000  : immediate HTTP responder (satisfies direct TCP health check)
- * - Port 22995 : Metro bundler directly (Expo dev domain routes here)
+ * - Port 5000  : health-check HTTP responder
+ * - Port 22995 : Metro bundler
  */
 const http = require('http');
 const { spawn } = require('child_process');
@@ -43,7 +41,7 @@ const metro = spawn(process.execPath, [expoCli, 'start', '--port', String(METRO_
   env: {
     ...process.env,
     PORT: String(METRO_PORT),
-    EXPO_PUBLIC_DOMAIN: process.env.EXPO_PUBLIC_DOMAIN || process.env.REPLIT_DEV_DOMAIN || '',
+    EXPO_PUBLIC_DOMAIN: process.env.EXPO_PUBLIC_DOMAIN || '',
   },
 });
 
